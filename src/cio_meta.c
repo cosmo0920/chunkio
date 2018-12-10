@@ -18,7 +18,10 @@
  */
 
 #define _GNU_SOURCE
-#ifdef CIO_HAVE_BACKEND_FILESYSTEM
+#ifdef _WIN32
+#include <io.h>
+#include <share.h>
+#elif CIO_HAVE_BACKEND_FILESYSTEM
 #  include <sys/mman.h>
 #endif
 #include <string.h>
@@ -140,6 +143,20 @@ int cio_meta_write(struct cio_chunk *ch, char *buf, size_t size)
     /* If there is no enough space, increase the file size and it memory map */
     if (content_av < size) {
         new_size = (size - meta_av) + cf->data_size + CIO_FILE_HEADER_MIN;
+#ifdef _WIN32
+        if (VirtualFree(cf->data_size, size, MEM_RELEASE) == 0)
+            return -1;
+
+        tmp = VirtualAlloc(NULL, new_size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+        if (tmp == NULL) {
+            cio_errno();
+            cio_log_error(ch->ctx,
+                "[cio meta] data exceeds available space "
+                "(alloc=%lu current_size=%lu meta_size=%lu)",
+                cf->alloc_size, cf->data_size, size);
+            return -1;
+        }
+#else
         /* OSX mman does not implement mremap or MREMAP_MAYMOVE. */
 #ifndef MREMAP_MAYMOVE
         if (munmap(cf->data_size, size) == -1)
@@ -158,6 +175,7 @@ int cio_meta_write(struct cio_chunk *ch, char *buf, size_t size)
             return -1;
 
         }
+#endif
         cf->map = tmp;
         cf->alloc_size = new_size;
 
