@@ -27,12 +27,35 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <share.h>
+#include <strsafe.h>
+#else
 #include <fts.h>
 #include <sys/mman.h>
+#endif
 #include <errno.h>
 
+#include <chunkio/chunkio_compat.h>
 #include <chunkio/cio_log.h>
 
+#ifdef _WIN32
+int cio_utils_recursive_delete(const char *dir)
+{
+    int ret;
+    WCHAR szDir[PATH_MAX + 1];
+    SHFILEOPSTRUCTW fileOperation = { 0 };
+    ret = StringCchCopyW(szDir, PATH_MAX, dir);
+    if (ret != S_OK) {
+        return -1;
+    }
+
+    fileOperation.wFunc = FO_DELETE;
+    fileOperation.pFrom = szDir;
+    fileOperation.fFlags = FOF_NO_UI | FOF_NOCONFIRMATION;
+    return SHFileOperation(&fileOperation);
+}
+#else
 /*
  * Taken from StackOverflow:
  *
@@ -93,6 +116,7 @@ int cio_utils_recursive_delete(const char *dir)
 
     return ret;
 }
+#endif
 
 int cio_utils_read_file(const char *path, char **buf, size_t *size)
 {
@@ -100,6 +124,9 @@ int cio_utils_read_file(const char *path, char **buf, size_t *size)
     int ret;
     char *data;
     struct stat st;
+#ifdef _WIN32
+    HANDLE fmo;
+#endif
 
     fd = open(path, O_RDONLY);
     if (fd == -1) {
@@ -117,14 +144,25 @@ int cio_utils_read_file(const char *path, char **buf, size_t *size)
         close(fd);
         return -1;
     }
-
+#ifdef _WIN32
+    fmo = CreateFileMapping(fd, NULL, PAGE_READONLY, 0, st.st_size, NULL);
+    if (!fmo) {
+        perror("CreateFileMapping");
+        return -1;
+    }
+    data = MapViewOfFile(fmo, FILE_MAP_READ, 0, (DWORD)0, (SIZE_T)st.st_size);
+    if (!data) {
+        perror("MapViewOfFile");
+        return -1;
+    }
+#else
     data = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
     if (data == MAP_FAILED) {
         perror("mmap");
         close(fd);
         return -1;
     }
-
+#endif
     close(fd);
 
     *buf = data;
