@@ -23,6 +23,7 @@
 #include <chunkio/cio_chunk.h>
 #include <chunkio/cio_file_st.h>
 #include <chunkio/cio_crc32.h>
+#include <chunkio/chunkio_compat.h>
 
 struct cio_file {
     int fd;                   /* file descriptor      */

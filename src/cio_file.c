@@ -27,8 +27,12 @@
 #include <chunkio/chunkio_compat.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <share.h>
+#else
 #include <sys/mman.h>
 #include <arpa/inet.h>
+#endif
 #include <limits.h>
 
 #include <chunkio/chunkio.h>
@@ -218,10 +222,18 @@ static int mmap_file(struct cio_ctx *ctx, struct cio_chunk *ch, size_t size)
 
     /* Mmap */
     if (cf->flags & CIO_OPEN) {
+#ifdef _WIN32
+        oflags = PAGE_READWRITE;
+#else
         oflags = PROT_READ | PROT_WRITE;
+#endif
     }
     else if (cf->flags & CIO_OPEN_RD) {
+#ifdef _WIN32
+        oflags = PAGE_READONLY;
+#else
         oflags = PROT_READ;
+#endif
     }
 
     /* If the file is not empty, use file size for the memory map */
@@ -249,6 +261,17 @@ static int mmap_file(struct cio_ctx *ctx, struct cio_chunk *ch, size_t size)
 
     /* Map the file */
     size = ROUND_UP(size, cio_page_size);
+#ifdef _WIN32
+    cf->map = VirtualAlloc(NULL, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    if (!cf->map) {
+        cio_errno();
+        cio_log_error(ch->ctx,
+            "[cio file] data exceeds available space "
+            "(alloc=%lu current_size=%lu meta_size=%lu)",
+            cf->alloc_size, cf->data_size, size);
+        return -1;
+    }
+#else
     cf->map = mmap(0, size, oflags, MAP_SHARED, cf->fd, 0);
     if (cf->map == MAP_FAILED) {
         cio_errno();
@@ -256,6 +279,7 @@ static int mmap_file(struct cio_ctx *ctx, struct cio_chunk *ch, size_t size)
         cio_file_close(ch, CIO_TRUE);
         return -1;
     }
+#endif
     cf->alloc_size = size;
 
     /* check content data size */
@@ -363,7 +387,11 @@ struct cio_file *cio_file_open(struct cio_ctx *ctx,
 
     /* Open file descriptor */
     if (flags & CIO_OPEN) {
+#ifdef _WIN32
+        cf->fd = open(path, O_RDWR | O_CREAT, _S_IREAD | _S_IWRITE);
+#else
         cf->fd = open(path, O_RDWR | O_CREAT, (mode_t) 0600);
+#endif
     }
     else if (flags & CIO_OPEN_RD) {
         cf->fd = open(path, O_RDONLY);
@@ -416,10 +444,16 @@ void cio_file_close(struct cio_chunk *ch, int delete)
         }
     }
 
+#ifdef _WIN32
+    if (cf->map) {
+        VirtualFree(cf->map, cf->alloc_size, MEM_RELEASE);
+    }
+#else
     /* unmap file */
     if (cf->map) {
         munmap(cf->map, cf->alloc_size);
     }
+#endif
     close(cf->fd);
 
     if (delete == CIO_TRUE) {
@@ -469,6 +503,20 @@ int cio_file_write(struct cio_chunk *ch, const void *buf, size_t count)
                           "[cio_file] error setting new file size on write");
             return -1;
         }
+#ifdef _WIN32
+        if (VirtualFree(cf->data_size, av_size, MEM_RELEASE) == 0)
+            return -1;
+
+        tmp = VirtualAlloc(NULL, new_size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+        if (tmp == NULL) {
+            cio_errno();
+            cio_log_error(ch->ctx,
+                "[cio meta] data exceeds available space "
+                "(alloc=%lu current_size=%lu meta_size=%lu)",
+                cf->alloc_size, cf->data_size, count);
+            return -1;
+        }
+#else
         /* OSX mman does not implement mremap or MREMAP_MAYMOVE. */
 #ifndef MREMAP_MAYMOVE
         if (munmap(cf->data_size, av_size) == -1)
@@ -486,7 +534,7 @@ int cio_file_write(struct cio_chunk *ch, const void *buf, size_t count)
                           cf->alloc_size, cf->data_size, count);
             return -1;
         }
-
+#endif //_WIN32
         cio_log_debug(ch->ctx,
                       "[cio file] alloc_size from %lu to %lu",
                       cf->alloc_size, new_size);
@@ -559,6 +607,13 @@ int cio_file_sync(struct cio_chunk *ch)
         finalize_checksum(cf);
     }
 
+#ifdef _WIN32
+    if (!FlushViewOfFile(cf->map, cf->alloc_size)) {
+        cio_errno();
+        cio_log_error(ch->ctx, "[cio file] FlushViewOfFile failed");
+        return -1;
+    }
+#else
     /* Sync mode */
     if (ch->ctx->flags & CIO_FULL_SYNC) {
         sync_mode = MS_SYNC;
@@ -573,7 +628,7 @@ int cio_file_sync(struct cio_chunk *ch)
         cio_errno();
         return -1;
     }
-
+#endif
     cf->synced = CIO_TRUE;
     cio_log_debug(ch->ctx, "[cio file] synced at: %s/%s",
                   ch->st->name, ch->name);
