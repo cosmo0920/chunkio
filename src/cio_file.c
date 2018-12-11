@@ -644,6 +644,9 @@ int cio_file_fs_size_change(struct cio_file *cf, size_t new_size)
         return 0;
     }
 
+#ifdef _WIN32
+    ret = _chsize(cf->fd, new_size);
+#else
     /* macOS does not have fallocate().
      * So, we should use ftruncate always. */
 #ifndef __APPLE__
@@ -663,6 +666,7 @@ int cio_file_fs_size_change(struct cio_file *cf, size_t new_size)
     {
         ret = ftruncate(cf->fd, new_size);
     }
+#endif
 
     return ret;
 }
