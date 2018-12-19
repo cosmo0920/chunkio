@@ -118,7 +118,11 @@ int cio_utils_recursive_delete(const char *dir)
 }
 #endif
 
+#ifdef _WIN32
+int cio_utils_read_file(const char *path, char **buf, size_t *size, HANDLE *handle)
+#else
 int cio_utils_read_file(const char *path, char **buf, size_t *size)
+#endif
 {
     int fd;
     int ret;
@@ -153,6 +157,7 @@ int cio_utils_read_file(const char *path, char **buf, size_t *size)
     data = MapViewOfFile(fmo, FILE_MAP_READ, 0, (DWORD)0, (SIZE_T)st.st_size);
     if (!data) {
         perror("MapViewOfFile");
+        close(fd);
         return -1;
     }
 #else
@@ -167,6 +172,9 @@ int cio_utils_read_file(const char *path, char **buf, size_t *size)
 
     *buf = data;
     *size = st.st_size;
+#ifdef _WIN32
+    *handle = fmo;
+#endif
 
     return 0;
 }

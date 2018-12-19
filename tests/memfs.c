@@ -63,6 +63,9 @@ static void test_memfs_write()
     struct cio_stream *stream;
     struct cio_chunk *chunk;
     struct cio_chunk **carr;
+#ifdef _WIN32
+    HANDLE handle;
+#endif
 
     /* Dummy break line for clarity on acutest output */
     printf("\n");
@@ -96,7 +99,11 @@ static void test_memfs_write()
      * Load sample data file and with the same content through multiple write
      * operations generating other files.
      */
+#ifdef _WIN32
+    ret = cio_utils_read_file(CIO_FILE_400KB, &in_data, &in_size, &handle);
+#else
     ret = cio_utils_read_file(CIO_FILE_400KB, &in_data, &in_size);
+#endif
     TEST_CHECK(ret == 0);
     if (ret == -1) {
         cio_destroy(ctx);
@@ -143,6 +150,10 @@ static void test_memfs_write()
     }
     if (UnmapViewOfFile(in_data)) {
         perror("UnmapViewOfFile failed");
+        exit(EXIT_FAILURE);
+    }
+    if (!CloseHandle(handle)) {
+        perror("CloseHandle failed");
         exit(EXIT_FAILURE);
     }
 #else
