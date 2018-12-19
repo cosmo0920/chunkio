@@ -17,9 +17,14 @@
  *  limitations under the License.
  */
 
+#ifdef _WIN32
+#include <share.h>
+#else
 #include <sys/mman.h>
 #include <arpa/inet.h>
+#endif
 
+#include <chunkio/chunkio_compat.h>
 #include <chunkio/chunkio.h>
 #include <chunkio/cio_log.h>
 #include <chunkio/cio_scan.h>
@@ -131,7 +136,18 @@ static void test_memfs_write()
 
     /* Release file data and destroy context */
     free(carr);
+#ifdef _WIN32
+    if (!FlushViewOfFile(in_data, in_size)) {
+        perror("FlushViewOfFile failed");
+        exit(EXIT_FAILURE);
+    }
+    if (UnmapViewOfFile(in_data)) {
+        perror("UnmapViewOfFile failed");
+        exit(EXIT_FAILURE);
+    }
+#else
     munmap(in_data, in_size);
+#endif
 
     cio_scan_dump(ctx);
     cio_destroy(ctx);
