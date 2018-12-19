@@ -17,9 +17,15 @@
  *  limitations under the License.
  */
 
+#ifdef _WIN32
+#include <share.h>
+#include <strsafe.h>
+#else
 #include <sys/mman.h>
 #include <arpa/inet.h>
+#endif
 
+#include <chunkio/chunkio_compat.h>
 #include <chunkio/chunkio.h>
 #include <chunkio/cio_log.h>
 #include <chunkio/cio_scan.h>
@@ -58,6 +64,10 @@ static void test_fs_write()
     struct cio_stream *stream;
     struct cio_chunk *chunk;
     struct cio_chunk **carr;
+#ifdef _WIN32
+    char tmpfile[PATH_MAX];
+    WCHAR szDir[PATH_MAX + 1];
+#endif
 
     /* Dummy break line for clarity on acutest output */
     printf("\n");
@@ -65,10 +75,21 @@ static void test_fs_write()
     flags = CIO_CHECKSUM;
 
     /* cleanup environment */
+#ifdef _WIN32
+    GetTempPath(PATH_MAX, tmpfile);
+    StringCchCopy(szDir, PATH_MAX, tmpfile);
+    StringCchCat(szDir, PATH_MAX, TEXT("\\cio-fs-test"));
+    cio_utils_recursive_delete(szDir);
+#else
     cio_utils_recursive_delete(CIO_ENV);
+#endif
 
     /* Create main context */
+#ifdef _WIN32
+    ctx = cio_create(szDir, log_cb, CIO_INFO, flags);
+#else
     ctx = cio_create(CIO_ENV, log_cb, CIO_INFO, flags);
+#endif
     TEST_CHECK(ctx != NULL);
 
     /* Try to create a file with an invalid stream */
@@ -134,7 +155,11 @@ static void test_fs_write()
 
     /* Release file data and destroy context */
     free(carr);
+#ifdef _WIN32
+    VirtualFree(in_data, in_size, MEM_RELEASE);
+#else
     munmap(in_data, in_size);
+#endif
     cio_destroy(ctx);
 
     /* Create new context using the data generated above */
@@ -159,6 +184,10 @@ static void test_fs_checksum()
     struct cio_ctx *ctx;
     struct cio_stream *stream;
     struct cio_chunk *chunk;
+#ifdef _WIN32
+    char tmpfile[PATH_MAX];
+    WCHAR szDir[PATH_MAX + 1];
+#endif
 
     /*
      * crc32 checksums
@@ -187,9 +216,20 @@ static void test_fs_checksum()
     printf("\n");
 
     /* cleanup environment */
+#ifdef _WIN32
+    GetTempPath(PATH_MAX, tmpfile);
+    StringCchCopy(szDir, PATH_MAX, tmpfile);
+    StringCchCat(szDir, PATH_MAX, TEXT("\\cio-fs-test"));
+    cio_utils_recursive_delete(szDir);
+#else
     cio_utils_recursive_delete(CIO_ENV);
+#endif
 
+#ifdef _WIN32
+    ctx = cio_create(szDir, log_cb, CIO_INFO, flags);
+#else
     ctx = cio_create(CIO_ENV, log_cb, CIO_INFO, flags);
+#endif
     TEST_CHECK(ctx != NULL);
 
     stream = cio_stream_create(ctx, "test-crc32", CIO_STORE_FS);
@@ -197,6 +237,7 @@ static void test_fs_checksum()
 
     /* Load sample data file in memory */
     ret = cio_utils_read_file(CIO_FILE_400KB, &in_data, &in_size);
+
     TEST_CHECK(ret == 0);
     if (ret == -1) {
         cio_destroy(ctx);
@@ -245,7 +286,11 @@ static void test_fs_checksum()
 
     /* Release */
     cio_destroy(ctx);
+#ifdef _WIN32
+    VirtualFree(in_data, in_size, MEM_RELEASE);
+#else
     munmap(in_data, in_size);
+#endif
 }
 
 TEST_LIST = {
