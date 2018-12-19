@@ -25,6 +25,7 @@
 #  define PATH_MAX MAX_PATH
 #  define ssize_t int
 #  include <winsock2.h>
+#  pragma comment(lib, "ws2_32.lib")
 #  include <windows.h>
 #  include <wchar.h>
 #  include <io.h>
@@ -47,6 +48,16 @@ static inline char* dirname(const char *dir) {
     _makepath(path_buffer, drive, splitted_dir, "", "");
 
     return path_buffer;
+}
+#  if !defined(S_ISREG) && defined(S_IFMT) && defined(S_IFREG)
+#    define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+#  endif
+#  define strerror_r(errno,buf,len) strerror_s(buf,len,errno)
+inline int getpagesize(void)
+{
+    SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return system_info.dwPageSize;
 }
 #else
 #  include <unistd.h>
